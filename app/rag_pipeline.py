@@ -1,4 +1,4 @@
-# rag_pipeline.py
+# rag_pipeline.py :
 
 from embeddings import embed_text
 from qdrant_db import search_vectors
