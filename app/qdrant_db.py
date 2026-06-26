@@ -1,5 +1,3 @@
-# qdrant_db.py
-
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from config import (
@@ -7,15 +5,38 @@ from config import (
     COLLECTION_NAME, EMBEDDING_DIMENSION, TOP_K
 )
 
-# Connexion avec timeout augmenté
 client = QdrantClient(
     url=QDRANT_URL,
     api_key=QDRANT_API_KEY,
-    timeout=120  # 120 secondes au lieu de 30 par défaut
+    timeout=120
 )
 
 
+def reset_collection(collection_name: str = COLLECTION_NAME):
+    """
+    Supprime la collection si elle existe (même en cas d'erreur/corruption)
+    puis la recrée proprement.
+    """
+    existing = [c.name for c in client.get_collections().collections]
+    if collection_name in existing:
+        try:
+            client.delete_collection(collection_name=collection_name)
+            print(f"🗑️  Ancienne collection '{collection_name}' supprimée.")
+        except Exception as e:
+            print(f"⚠️  Impossible de supprimer '{collection_name}' : {e}")
+
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(
+            size=EMBEDDING_DIMENSION,
+            distance=Distance.COSINE
+        )
+    )
+    print(f"✅ Collection '{collection_name}' recréée.")
+
+
 def create_collection(collection_name: str = COLLECTION_NAME):
+    """Crée la collection si elle n'existe pas. Sinon, ne fait rien."""
     existing = [c.name for c in client.get_collections().collections]
     if collection_name in existing:
         print(f"⚠️  Collection '{collection_name}' existe déjà.")
@@ -39,12 +60,13 @@ def upload_vectors(chunks: list[dict], vectors: list[list[float]], collection_na
                 vector=vector,
                 payload={
                     "chunk": chunk["chunk"],
-                    "id": chunk["id"]
+                    "id": chunk["id"],
+                    "source": chunk.get("source", ""),
+                    "source_short": chunk.get("source_short", "")
                 }
             )
         )
 
-    # Batch réduit à 10 points pour éviter le timeout
     batch_size = 10
     total = len(points)
 
@@ -52,7 +74,6 @@ def upload_vectors(chunks: list[dict], vectors: list[list[float]], collection_na
         batch = points[i:i + batch_size]
         success = False
         retries = 3
-
         while not success and retries > 0:
             try:
                 client.upsert(
@@ -63,7 +84,7 @@ def upload_vectors(chunks: list[dict], vectors: list[list[float]], collection_na
                 success = True
             except Exception as e:
                 retries -= 1
-                print(f"⚠️  Erreur batch {i // batch_size + 1}, tentative restante : {retries} | {e}")
+                print(f"⚠️  Erreur batch {i // batch_size + 1}, tentatives restantes : {retries} | {e}")
                 if retries == 0:
                     raise
 
@@ -83,7 +104,9 @@ def search_vectors(query_vector: list[float], top_k: int = TOP_K, collection_nam
         retrieved.append({
             "chunk": hit.payload.get("chunk", ""),
             "score": hit.score,
-            "id": hit.payload.get("id", hit.id)
+            "id": hit.payload.get("id", hit.id),
+            "source": hit.payload.get("source", ""),
+            "source_short": hit.payload.get("source_short", "")
         })
     return retrieved
 
@@ -99,3 +122,8 @@ def get_collection_info(collection_name: str = COLLECTION_NAME):
     print(f"   Points     : {info.points_count}")
     print(f"   Status     : {info.status}")
     return info
+
+
+def collection_exists(collection_name: str = COLLECTION_NAME) -> bool:
+    existing = [c.name for c in client.get_collections().collections]
+    return collection_name in existing
