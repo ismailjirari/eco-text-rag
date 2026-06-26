@@ -1,53 +1,57 @@
-# main.py
+# main.py :
 
 import os
 import sys
-from config import PDF_FILE, COLLECTION_NAME
-from utils import extract_text_from_pdf, clean_text, split_text, save_chunks, load_chunks
+from config import PDF_FILES, COLLECTION_NAME
+from utils import extract_texts_from_pdfs, build_chunks_from_pdfs, save_chunks, load_chunks
 from embeddings import embed_documents, save_embeddings, load_embeddings
-from qdrant_db import create_collection, upload_vectors, get_collection_info
+from qdrant_db import reset_collection, upload_vectors, get_collection_info
 from rag_pipeline import ask_question
 
 
-def ingest_pipeline():
-    """Pipeline complet d'ingestion : PDF → chunks → embeddings → Qdrant."""
+def ingest_pipeline(force_reset: bool = True):
+    """
+    Pipeline complet d'ingestion : 3 PDFs → chunks → embeddings → Qdrant.
+    Si force_reset=True, supprime et recrée la collection Qdrant.
+    """
     print("\n" + "="*60)
-    print("🚀 DÉMARRAGE PIPELINE D'INGESTION")
+    print("🚀 DÉMARRAGE PIPELINE D'INGESTION — ÉCO TEXTILE RAG")
     print("="*60)
 
-    # 1. Extraction texte PDF
-    print("\n📄 Étape 1 : Extraction du texte PDF...")
-    raw_text = extract_text_from_pdf(PDF_FILE)
+    # 1. Extraction texte des 3 PDFs
+    print(f"\n📄 Étape 1 : Extraction du texte des {len(PDF_FILES)} PDFs...")
+    pdf_texts = extract_texts_from_pdfs(PDF_FILES)
+    if not pdf_texts:
+        print("❌ Aucun PDF chargé. Vérifiez les chemins dans config.py.")
+        return
 
-    # 2. Nettoyage
-    print("\n🧹 Étape 2 : Nettoyage du texte...")
-    clean = clean_text(raw_text)
+    # 2. Chunking multi-source
+    print("\n✂️  Étape 2 : Découpage en chunks (avec métadonnée source)...")
+    chunks = build_chunks_from_pdfs(pdf_texts)
 
-    # 3. Chunking
-    print("\n✂️  Étape 3 : Découpage en chunks...")
-    raw_chunks = split_text(clean)
-    chunks = [{"chunk": c, "id": i} for i, c in enumerate(raw_chunks)]
-    print(f"   → {len(chunks)} chunks créés")
-
-    # 4. Sauvegarde chunks
+    # 3. Sauvegarde chunks
     save_chunks(chunks)
 
-    # 5. Génération embeddings
-    print("\n🔢 Étape 4 : Génération des embeddings...")
+    # 4. Génération embeddings
+    print("\n🔢 Étape 3 : Génération des embeddings...")
     texts = [c["chunk"] for c in chunks]
     vectors = embed_documents(texts)
     save_embeddings(vectors)
 
-    # 6. Création collection Qdrant
-    print(f"\n🗄️  Étape 5 : Création collection Qdrant '{COLLECTION_NAME}'...")
-    create_collection()
+    # 5. Reset collection Qdrant (supprime l'ancienne si elle a un problème)
+    print(f"\n🗄️  Étape 4 : Reset collection Qdrant '{COLLECTION_NAME}'...")
+    if force_reset:
+        reset_collection()
+    else:
+        from qdrant_db import create_collection
+        create_collection()
 
-    # 7. Upload vers Qdrant
-    print("\n⬆️  Étape 6 : Upload vers Qdrant...")
+    # 6. Upload vers Qdrant
+    print("\n⬆️  Étape 5 : Upload vers Qdrant...")
     upload_vectors(chunks, vectors)
 
-    # 8. Vérification
-    print("\n📊 Étape 7 : Vérification...")
+    # 7. Vérification
+    print("\n📊 Étape 6 : Vérification...")
     get_collection_info()
 
     print("\n" + "="*60)
@@ -58,17 +62,15 @@ def ingest_pipeline():
 def chat_mode():
     """Mode chat interactif en ligne de commande."""
     print("\n" + "="*60)
-    print("💬 MODE CHAT - RAG Stock Assistant (GOTS 7.0)")
+    print("💬 MODE CHAT — ÉCO TEXTILE RAG")
     print("   Tapez 'quit' ou 'exit' pour quitter")
     print("="*60 + "\n")
 
     while True:
         try:
             question = input("❓ Question : ").strip()
-
             if not question:
                 continue
-
             if question.lower() in ['quit', 'exit', 'q']:
                 print("👋 Au revoir !")
                 break
@@ -81,7 +83,7 @@ def chat_mode():
             print(result["answer"])
             print("\n📚 SOURCES UTILISÉES :")
             for i, src in enumerate(result["sources"], 1):
-                print(f"  [{i}] Score: {src['score']:.3f} | {src['chunk'][:100]}...")
+                print(f"  [{i}] Score: {src['score']:.3f} | [{src.get('source_short','?')}] {src['chunk'][:100]}...")
             print("\n" + "="*60 + "\n")
 
         except KeyboardInterrupt:
@@ -93,6 +95,8 @@ def chat_mode():
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "ingest":
-        ingest_pipeline()
+        # Passe --no-reset pour ne pas supprimer la collection existante
+        force = "--no-reset" not in sys.argv
+        ingest_pipeline(force_reset=force)
     else:
         chat_mode()
