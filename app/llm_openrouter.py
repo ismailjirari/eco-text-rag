@@ -1,4 +1,4 @@
-# llm_openrouter.py
+# llm_openrouter.py :
 
 import requests
 from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, LLM_MODEL
@@ -12,8 +12,8 @@ def generate_response(prompt: str, system_prompt: str = None) -> str:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/rag-stock-assistant",
-        "X-Title": "RAG Stock Assistant"
+        "HTTP-Referer": "https://github.com/eco-textile-rag",
+        "X-Title": "Éco Textile RAG"
     }
 
     messages = []
@@ -39,7 +39,6 @@ def generate_response(prompt: str, system_prompt: str = None) -> str:
         data = response.json()
         answer = data["choices"][0]["message"]["content"]
         return answer.strip()
-
     except requests.exceptions.HTTPError as e:
         print(f"❌ Erreur HTTP OpenRouter : {e}")
         print(f"   Réponse : {response.text}")
